@@ -1,0 +1,53 @@
+import requests
+from bs4 import BeautifulSoup
+import pandas as pd
+import schedule
+import time
+
+def scrape_books():
+    base_url = 'http://books.toscrape.com/catalogue/page-{}.html'
+    books = []
+
+    for page in range(1, 51):  # Предполагаем, что на сайте 50 страниц
+        response = requests.get(base_url.format(page))
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        for book in soup.select('.product_pod'):
+            title = book.h3.a['title']
+            price = book.select_one('.price_color').text[1:]  # Убираем символ валюты
+            rating = book.p['class'][1]  # Класс содержит рейтинг
+            availability = book.select_one('.instock.availability').text.strip()
+            
+            # Переходим на страницу книги для получения дополнительной информации
+            book_url = book.h3.a['href']
+            book_response = requests.get('http://books.toscrape.com/catalogue/' + book_url)
+            book_soup = BeautifulSoup(book_response.text, 'html.parser')
+            description = book_soup.select_one('#product_description + p').text if book_soup.select_one('#product_description + p') else 'Нет описания'
+            
+            # Собираем данные о книге
+            books.append({
+                'title': title,
+                'price': price,
+                'rating': rating,
+                'availability': availability,
+                'description': description
+            })
+
+    # Создаем DataFrame и обрабатываем данные
+    df = pd.DataFrame(books)
+    df.dropna(inplace=True)  # Удаляем пропуски
+    df.drop_duplicates(inplace=True)  # Удаляем дубликаты
+
+    # Выводим количество книг и основные статистики
+    print(f'Общее количество книг: {len(df)}')
+    print(df.describe())
+
+    # Сохраняем данные в CSV
+    df.to_csv('books_data.csv', index=False)
+
+# Настройка автоматического запуска
+schedule.every().day.at("19:00").do(scrape_books)
+
+while True:
+    schedule.run_pending()
+    time.sleep(60)  # Проверяем каждую минуту
